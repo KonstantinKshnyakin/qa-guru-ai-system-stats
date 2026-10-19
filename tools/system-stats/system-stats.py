@@ -2,8 +2,10 @@
 """system-stats tool: local system diagnostics as a JSON report.
 
 Devin --extend-tools contract: args arrive as JSON in TOOL_ARGS, stdout is
-the tool result. Read-only, stdlib only; every failure — bad input or a dead
-collector — reports {"error": ...} as JSON on stdout.
+the tool result. Read-only, stdlib only. One requested section prints its
+result unwrapped; several print an object keyed by section name. Invalid
+arguments print {"error": ...} and exit 1; a failed collector puts "error"
+inside its section while the tool still exits 0.
 """
 
 import hashlib
@@ -189,7 +191,7 @@ def main() -> int:
         args = json.loads(os.environ.get("TOOL_ARGS", "{}"))
         if not isinstance(args, dict):
             raise ValueError("TOOL_ARGS must be a JSON object")
-        section = args.get("section", "all")
+        section = args.get("section", "load,mem,disk")
         if not isinstance(section, str):
             raise ValueError(f"section must be a string, got {section!r}")
         names = list(dict.fromkeys(s.strip() for s in section.split(",") if s.strip()))

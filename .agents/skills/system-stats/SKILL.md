@@ -1,8 +1,15 @@
 ---
 name: system-stats
-description: Collect local machine diagnostics (CPU load, memory, disk, uptime, top processes, listening ports, SHA-256 benchmark) via the read-only tools/system-stats/system-stats.py tool. Use when the user asks to check or report the machine's state, health, load, memory, disk usage, uptime, top processes, listening ports, or to run a benchmark.
+description: Collect local machine diagnostics (CPU load, memory, disk, uptime, top processes) via the read-only tools/system-stats/system-stats.py. Use when asked to check machine state, health, load, memory, disk usage or processes. Listening ports and a SHA-256 benchmark are available on explicit request.
 ---
 
 # system-stats
 
-Usage, sections and report flow: `knowledge/system-stats/system-stats.md`.
+1. For a generic "check the machine" request run the tool with
+   `section` = `load,mem,disk` (also the tool's default).
+2. `ports` and `bench` — only on direct request of those diagnostics or
+   an explicit full set (`all`).
+3. Interpret the report and answer with one line per area.
+
+Interface (arguments, sections, output and error format) and
+interpretation rules: `knowledge/system-stats/system-stats.md`.

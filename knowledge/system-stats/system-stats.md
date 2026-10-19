@@ -1,4 +1,4 @@
-# system-stats usage
+# system-stats reference
 
 Run from the project root; args go as JSON in `TOOL_ARGS`, result prints
 to stdout as JSON:
@@ -7,34 +7,37 @@ to stdout as JSON:
 TOOL_ARGS='{"section":"load,mem,disk"}' python3 tools/system-stats/system-stats.py
 ```
 
+`tools/system-stats/system-stats.json` is an adapter in the Devin
+`--extend-tools` format (exec + schema). No consumer is wired up in this
+repo — it is kept as an optional adapter, not an active integration.
+
+## Arguments
+
+- `section` — a name or comma-separated list; default `load,mem,disk`.
+- `top_n` — processes in `top`, 1..100, default 5.
+- `mb` — megabytes hashed in `bench`, 1..1024, default 64.
+
 ## Sections
 
 - `load` — load average (1/5/15 min) and CPU core count
 - `mem` — total / used / available RAM in bytes (macOS and Linux)
 - `disk` — `/` usage, including `used_pct`
 - `uptime` — system uptime
-- `top` — top processes by CPU (optional arg `top_n`, 1..100, default 5)
+- `top` — top processes by CPU (`top_n`)
 - `ports` — listening TCP ports
-- `bench` — SHA-256 throughput benchmark (optional arg `mb`, 1..1024, default 64)
-- `all` — all sections (cannot be combined with others)
+- `bench` — SHA-256 throughput benchmark (`mb`)
+- `all` — all sections; explicit only, cannot be combined with others
 
-Combine sections with a comma: `"section":"load,mem,disk"`.
+## Output and error format
 
-## Default report flow
+- One requested section — its result prints unwrapped; several — an
+  object keyed by section name.
+- Invalid arguments — `{"error": "invalid arguments: ..."}`, exit 1.
+- A failed collector — `"error"` inside its section's result, exit 0.
+  Report that area as "недоступно"; don't retry with other commands.
 
-For a generic "check the machine" request:
+## Interpretation
 
-1. Run with `section` = `load,mem,disk`.
-2. Compare `loadavg_5m` with `cpu_count`.
-3. Flag RAM when available is below ~10% of total; flag disk when
-   `used_pct` is above 90%.
-4. Answer with one line per area (load / memory / disk). If a section
-   contains `"error"`, report that area as "недоступно".
-
-Run `ports` and `bench` only when explicitly asked — they are not part of
-the default report.
-
-## Errors
-
-- A section returning `{"error": ...}` or invalid-argument errors means the
-  measurement is unavailable — report it, don't retry with other commands.
+- Compare `loadavg_5m` with `cpu_count`.
+- Flag RAM when available is below ~10% of total; flag disk when
+  `used_pct` is above 90%.
