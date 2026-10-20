@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """system-stats tool: local system diagnostics as a JSON report.
 
-Devin --extend-tools contract: args arrive as JSON in TOOL_ARGS, stdout is
+Arguments arrive as JSON in TOOL_ARGS, stdout is
 the tool result. Read-only, stdlib only. One requested section prints its
 result unwrapped; several print an object keyed by section name. Invalid
 arguments print {"error": ...} and exit 1; a failed collector puts "error"

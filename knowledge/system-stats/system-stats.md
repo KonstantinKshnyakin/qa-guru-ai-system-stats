@@ -7,10 +7,6 @@ to stdout as JSON:
 TOOL_ARGS='{"section":"load,mem,disk"}' python3 tools/system-stats/system-stats.py
 ```
 
-`tools/system-stats/system-stats.json` is an adapter in the Devin
-`--extend-tools` format (exec + schema). No consumer is wired up in this
-repo — it is kept as an optional adapter, not an active integration.
-
 ## Arguments
 
 - `section` — a name or comma-separated list; default `load,mem,disk`.
@@ -34,7 +30,11 @@ repo — it is kept as an optional adapter, not an active integration.
   object keyed by section name.
 - Invalid arguments — `{"error": "invalid arguments: ..."}`, exit 1.
 - A failed collector — `"error"` inside its section's result, exit 0.
-  Report that area as "недоступно"; don't retry with other commands.
+  Inspect the error. If the execution sandbox blocks system access,
+  request permission through the environment's approval mechanism and
+  rerun this same tool outside the sandbox. Never bypass a denied approval
+  or collect metrics with alternative commands. If the approved run still
+  fails, report the error; do not claim successful diagnostics.
 
 ## Interpretation
 
