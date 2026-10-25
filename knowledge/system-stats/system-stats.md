@@ -15,11 +15,15 @@ TOOL_ARGS='{"section":"load,mem,disk"}' python3 tools/system-stats/system-stats.
 
 ## Sections
 
-- `load` — load average (1/5/15 min) and CPU core count
-- `mem` — total / used / available RAM in bytes (macOS and Linux)
+- `load` — load average (1/5/15 min) and CPU core count on macOS/Linux;
+  on Windows (no load average concept) `cpu_percent` — instantaneous CPU
+  utilization, 0..100 — and `cpu_count` instead
+- `mem` — total / used / available RAM in bytes (macOS, Linux, Windows)
 - `disk` — `/` usage, including `used_pct`
 - `uptime` — system uptime
-- `top` — top processes by CPU (`top_n`)
+- `top` — top processes by CPU (`top_n`); `cpu_pct`/`mem_pct` on
+  macOS/Linux, but on Windows `cpu_seconds` (cumulative CPU time, not a
+  percentage) and `mem_pct`
 - `ports` — listening TCP ports
 - `bench` — SHA-256 throughput benchmark (`mb`)
 - `all` — all sections; explicit only, cannot be combined with others
@@ -38,6 +42,11 @@ TOOL_ARGS='{"section":"load,mem,disk"}' python3 tools/system-stats/system-stats.
 
 ## Interpretation
 
-- Compare `loadavg_5m` with `cpu_count`.
+- macOS/Linux: compare `loadavg_5m` with `cpu_count`.
+- Windows: flag `cpu_percent` above ~85%; there is no load-average
+  equivalent, so do not compare it against `cpu_count`.
 - Flag RAM when available is below ~10% of total; flag disk when
   `used_pct` is above 90%.
+- On Windows, `ports` and `top` shell out to `netstat`/`tasklist` and
+  `powershell` respectively; `top`'s `cpu_seconds` is cumulative CPU time
+  since process start, not a percentage like on macOS/Linux.

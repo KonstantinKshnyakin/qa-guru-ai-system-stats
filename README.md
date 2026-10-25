@@ -6,10 +6,17 @@
 
 ## Что понадобится
 
-- macOS или Linux, терминал с bash/zsh и Python 3.
+- macOS, Linux или Windows, терминал (bash/zsh или PowerShell) и Python 3.
 - Codex с доступом к папке проекта и разрешением на локальную диагностику.
-- Для macOS: системные `sysctl` и `vm_stat`; для Linux: доступ к `/proc`.
-- Для дополнительных секций: `ps` для процессов, `lsof` для портов.
+- Для macOS: системные `sysctl` и `vm_stat`; для Linux: доступ к `/proc`;
+  для Windows: стандартные `ctypes`-вызовы WinAPI, плюс `netstat`/`tasklist`
+  и `powershell` для секций `ports` и `top`.
+- Для дополнительных секций: `ps` для процессов на macOS/Linux
+  (на Windows — `powershell`), `lsof` для портов на macOS/Linux
+  (на Windows — `netstat`/`tasklist`).
+- На Windows секция `load` возвращает `cpu_percent`
+  вместо `loadavg_*` (нет понятия load average), а `top` — `cpu_seconds`
+  вместо `cpu_pct` (см. справку).
 
 Python-пакеты устанавливать не нужно. Windows этим примером не поддерживается.
 Диагностика относится к машине, где выполняется Python: в удалённой среде
