@@ -8,6 +8,7 @@ arguments print {"error": ...} and exit 1; a failed collector puts "error"
 inside its section while the tool still exits 0.
 """
 
+import csv
 import hashlib
 import json
 import os
@@ -18,12 +19,69 @@ import subprocess
 import sys
 import time
 
-SYSTEM = platform.system()  # "Darwin" | "Linux"
+SYSTEM = platform.system()  # "Darwin" | "Linux" | "Windows"
 DEFAULT_TOP_N = 5
 MAX_TOP_N = 100
 DEFAULT_BENCH_MB = 64
 MAX_BENCH_MB = 1024
 CMD_TIMEOUT = 10
+
+if SYSTEM == "Windows":
+    import ctypes
+    from ctypes import wintypes
+
+    class _FILETIME(ctypes.Structure):
+        _fields_ = [
+            ("dwLowDateTime", wintypes.DWORD),
+            ("dwHighDateTime", wintypes.DWORD),
+        ]
+
+    class _MEMORYSTATUSEX(ctypes.Structure):
+        _fields_ = [
+            ("dwLength", wintypes.DWORD),
+            ("dwMemoryLoad", wintypes.DWORD),
+            ("ullTotalPhys", ctypes.c_uint64),
+            ("ullAvailPhys", ctypes.c_uint64),
+            ("ullTotalPageFile", ctypes.c_uint64),
+            ("ullAvailPageFile", ctypes.c_uint64),
+            ("ullTotalVirtual", ctypes.c_uint64),
+            ("ullAvailVirtual", ctypes.c_uint64),
+            ("ullAvailExtendedVirtual", ctypes.c_uint64),
+        ]
+
+    _GetTickCount64 = ctypes.windll.kernel32.GetTickCount64
+    _GetTickCount64.restype = ctypes.c_uint64
+
+    def _filetime_to_int(ft):
+        return (ft.dwHighDateTime << 32) | ft.dwLowDateTime
+
+    def _win_system_times():
+        idle, kernel, user = _FILETIME(), _FILETIME(), _FILETIME()
+        ok = ctypes.windll.kernel32.GetSystemTimes(
+            ctypes.byref(idle), ctypes.byref(kernel), ctypes.byref(user)
+        )
+        if not ok:
+            raise OSError(ctypes.get_last_error())
+        return _filetime_to_int(idle), _filetime_to_int(kernel), _filetime_to_int(user)
+
+    def _win_cpu_percent(sample_seconds=0.2):
+        idle1, kernel1, user1 = _win_system_times()
+        time.sleep(sample_seconds)
+        idle2, kernel2, user2 = _win_system_times()
+        idle_delta = idle2 - idle1
+        total_delta = (kernel2 - kernel1) + (user2 - user1)
+        if total_delta <= 0:
+            return 0.0
+        busy_delta = total_delta - idle_delta
+        return round(max(0.0, min(100.0, busy_delta / total_delta * 100)), 1)
+
+    def _win_memory_status():
+        stat = _MEMORYSTATUSEX()
+        stat.dwLength = ctypes.sizeof(_MEMORYSTATUSEX)
+        ok = ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(stat))
+        if not ok:
+            raise OSError(ctypes.get_last_error())
+        return stat
 
 
 def _run(cmd):
@@ -41,6 +99,11 @@ def _section(fn):
 
 
 def collect_load():
+    if SYSTEM == "Windows":
+        return {
+            "cpu_percent": _win_cpu_percent(),
+            "cpu_count": os.cpu_count(),
+        }
     l1, l5, l15 = os.getloadavg()
     return {
         "loadavg_1m": round(l1, 2),
@@ -81,11 +144,22 @@ def _mem_linux():
     }
 
 
+def _mem_windows():
+    stat = _win_memory_status()
+    return {
+        "total_bytes": stat.ullTotalPhys,
+        "used_bytes": stat.ullTotalPhys - stat.ullAvailPhys,
+        "available_bytes": stat.ullAvailPhys,
+    }
+
+
 def collect_mem():
     if SYSTEM == "Darwin":
         return _mem_darwin()
     if SYSTEM == "Linux":
         return _mem_linux()
+    if SYSTEM == "Windows":
+        return _mem_windows()
     return {"error": f"unsupported platform: {SYSTEM}"}
 
 
@@ -106,6 +180,8 @@ def _uptime_seconds():
         return time.time() - float(re.search(r"sec = (\d+)", out).group(1))
     if SYSTEM == "Linux":
         return float(open("/proc/uptime").read().split()[0])
+    if SYSTEM == "Windows":
+        return _GetTickCount64() / 1000.0
     raise ValueError(f"unsupported platform: {SYSTEM}")
 
 
@@ -119,11 +195,43 @@ def collect_uptime():
     }
 
 
+def _top_windows(top_n):
+    # CPU is formatted with InvariantCulture and the CSV uses ';' because
+    # locales with a comma decimal separator would otherwise corrupt a
+    # comma-delimited CSV (e.g. "3203,39" split into two fields).
+    cmd = [
+        "powershell", "-NoProfile", "-Command",
+        f"Get-Process | Sort-Object CPU -Descending | "
+        f"Select-Object -First {top_n} Id,ProcessName,"
+        "@{Name='CPU';Expression={ if ($_.CPU) "
+        "{ $_.CPU.ToString([System.Globalization.CultureInfo]::InvariantCulture) } "
+        "else { '' } }},WorkingSet64 | "
+        "ConvertTo-Csv -NoTypeInformation -Delimiter ';'",
+    ]
+    out = _run(cmd)
+    total_bytes = _win_memory_status().ullTotalPhys
+    procs = []
+    for row in csv.DictReader(out.splitlines(), delimiter=";"):
+        mem_bytes = int(row["WorkingSet64"]) if row["WorkingSet64"] else 0
+        procs.append(
+            {
+                "pid": int(row["Id"]),
+                # Windows exposes cumulative CPU time, not an instant percentage.
+                "cpu_seconds": round(float(row["CPU"]), 1) if row["CPU"] else 0.0,
+                "mem_pct": round(mem_bytes / total_bytes * 100, 1) if total_bytes else 0.0,
+                "cmd": row["ProcessName"],
+            }
+        )
+    return {"processes": procs}
+
+
 def collect_top(top_n):
     if SYSTEM == "Darwin":
         cmd = ["ps", "-Ao", "pid=,pcpu=,pmem=,comm=", "-r"]
     elif SYSTEM == "Linux":
         cmd = ["ps", "-eo", "pid=,pcpu=,pmem=,comm=", "--sort=-pcpu"]
+    elif SYSTEM == "Windows":
+        return _top_windows(top_n)
     else:
         return {"error": f"unsupported platform: {SYSTEM}"}
     out = _run(cmd)
@@ -136,7 +244,38 @@ def collect_top(top_n):
     return {"processes": procs}
 
 
+def _ports_windows():
+    out = _run(["netstat", "-ano", "-p", "TCP"])
+    pid_by_port = {}
+    for line in out.splitlines():
+        if "LISTENING" not in line:
+            continue
+        parts = line.split()
+        if len(parts) < 5:
+            continue
+        local_addr, pid = parts[1], parts[-1]
+        m = re.search(r":(\d+)$", local_addr)
+        if m:
+            pid_by_port.setdefault((int(m.group(1)), pid), None)
+
+    names = {}
+    if pid_by_port:
+        tl_out = _run(["tasklist", "/fo", "csv", "/nh"])
+        for row in csv.reader(tl_out.splitlines()):
+            if len(row) >= 2:
+                names[row[1]] = row[0]
+
+    return {
+        "listening": [
+            {"port": port, "process": names.get(pid, pid)}
+            for port, pid in sorted(pid_by_port)
+        ]
+    }
+
+
 def collect_ports():
+    if SYSTEM == "Windows":
+        return _ports_windows()
     out = _run(["lsof", "+c", "0", "-nP", "-iTCP", "-sTCP:LISTEN"])
     seen = {}
     for line in out.splitlines()[1:]:
